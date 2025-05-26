@@ -519,6 +519,125 @@ const CubeSynth = () => {
     };
     window.addEventListener('resize', handleResize);
 
+    // Device orientation handling
+    let isOrientationEnabled = false;
+    const handleOrientation = (event) => {
+      if (!isOrientationEnabled) return;
+      
+      const selectedBody = physicsBodiesRef.current[0];
+      if (!selectedBody) return;
+
+      // Get device orientation
+      const beta = event.beta;  // -180 to 180 (front/back)
+      const gamma = event.gamma; // -90 to 90 (left/right)
+      
+      // Convert orientation to force
+      const forceX = gamma * 0.1; // 좌우 기울기
+      const forceZ = beta * 0.1;  // 앞뒤 기울기
+      
+      // Apply force to the sphere
+      selectedBody.applyForce(
+        new CANNON.Vec3(forceX, 0, forceZ),
+        selectedBody.position
+      );
+    };
+
+    // Touch event handling
+    const handleTouchStart = (event) => {
+      event.preventDefault();
+      const touch = event.touches[0];
+      const mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
+      const mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
+      const intersects = raycaster.intersectObject(sphere);
+
+      if (intersects.length > 0) {
+        isDraggingRef.current = true;
+        startXRef.current = touch.clientX;
+        startYRef.current = touch.clientY;
+        
+        sphereRef.current = sphere;
+        
+        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
+        const chordNotes = getChordNotes(baseNoteIndex);
+        playMainSphereSound(chordNotes);
+      }
+    };
+
+    const handleTouchMove = (event) => {
+      if (!isDraggingRef.current) return;
+      event.preventDefault();
+      
+      const touch = event.touches[0];
+      const mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
+      const mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
+      
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
+      
+      const intersectionPoint = new THREE.Vector3();
+      raycaster.ray.intersectPlane(plane, intersectionPoint);
+      
+      const selectedBody = physicsBodiesRef.current[0];
+      
+      selectedBody.position.x = intersectionPoint.x;
+      selectedBody.position.z = intersectionPoint.z;
+      
+      selectedBody.velocity.set(0, 0, 0);
+      selectedBody.angularVelocity.set(0, 0, 0);
+
+      sphere.position.copy(selectedBody.position);
+      sphere.quaternion.copy(selectedBody.quaternion);
+
+      const totalDeltaY = touch.clientY - startYRef.current;
+      const noteIndex = Math.floor(Math.abs(totalDeltaY) / 50);
+      const newIndex = Math.max(0, Math.min(notes.length - 1, noteIndex));
+      const newNote = notes[newIndex];
+      
+      if (newNote !== currentNoteRef.current) {
+        currentNoteRef.current = newNote;
+        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
+        const chordNotes = getChordNotes(baseNoteIndex);
+        playMainSphereSound(chordNotes);
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        
+        const selectedBody = physicsBodiesRef.current[0];
+        selectedBody.velocity.set(0, 0, 0);
+      }
+    };
+
+    // Add event listeners for mobile
+    if (isMobile) {
+      // Request device orientation permission
+      if (typeof DeviceOrientationEvent !== 'undefined' && 
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === 'granted') {
+              isOrientationEnabled = true;
+              window.addEventListener('deviceorientation', handleOrientation);
+            }
+          })
+          .catch(console.error);
+      } else {
+        // For devices that don't require permission
+        isOrientationEnabled = true;
+        window.addEventListener('deviceorientation', handleOrientation);
+      }
+
+      // Add touch event listeners
+      window.addEventListener('touchstart', handleTouchStart, { passive: false });
+      window.addEventListener('touchmove', handleTouchMove, { passive: false });
+      window.addEventListener('touchend', handleTouchEnd);
+    }
+
     function animate() {
       requestAnimationFrame(animate);
       
@@ -541,6 +660,13 @@ const CubeSynth = () => {
     animate();
 
     return () => {
+      // Remove event listeners
+      if (isMobile) {
+        window.removeEventListener('deviceorientation', handleOrientation);
+        window.removeEventListener('touchstart', handleTouchStart);
+        window.removeEventListener('touchmove', handleTouchMove);
+        window.removeEventListener('touchend', handleTouchEnd);
+      }
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -549,7 +675,7 @@ const CubeSynth = () => {
       mountRef.current?.removeChild(renderer.domElement);
       synthRef.current.dispose();
     };
-  }, [isStarted]);
+  }, [isStarted, isMobile]);
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
