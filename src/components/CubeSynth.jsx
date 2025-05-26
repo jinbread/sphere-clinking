@@ -363,6 +363,14 @@ const CubeSynth = () => {
       },
       portamento: 0.05
     }).toDestination();
+
+    // 리버브 효과 추가
+    const reverb = new Tone.Reverb({
+      decay: 2.5,
+      wet: 0.4
+    }).toDestination();
+    synth.connect(reverb);
+
     synthRef.current = synth;
 
     // Create collision sound synth
@@ -413,25 +421,44 @@ const CubeSynth = () => {
       "C5", "C#5", "D5", "D#5", "E5", "F5", "F#5", "G5", "G#5", "A5", "A#5", "B5"
     ];
 
-    // 코드 정의
+    // 코드 정의 확장
     const chords = {
-      major: [0, 4, 7],
-      minor: [0, 3, 7],
-      diminished: [0, 3, 6],
-      augmented: [0, 4, 8],
-      sus4: [0, 5, 7],
-      sus2: [0, 2, 7]
+      major: [0, 4, 7, 11],      // 7th 추가
+      minor: [0, 3, 7, 10],      // 7th 추가
+      diminished: [0, 3, 6, 9],  // 7th 추가
+      augmented: [0, 4, 8, 11],  // 7th 추가
+      sus4: [0, 5, 7, 11],       // 7th 추가
+      sus2: [0, 2, 7, 11],       // 7th 추가
+      maj7: [0, 4, 7, 11],       // 메이저 7th
+      min7: [0, 3, 7, 10],       // 마이너 7th
+      dom7: [0, 4, 7, 10],       // 도미넌트 7th
+      dim7: [0, 3, 6, 9],        // 디미니시드 7th
+      aug7: [0, 4, 8, 10]        // 오그먼트 7th
     };
 
-    function getChordNotes(baseNoteIndex) {
-      const chordType = Math.floor((event.clientX - startXRef.current + window.innerWidth/2) / (window.innerWidth/6)) % 6;
-      const chordTypes = ['major', 'minor', 'diminished', 'augmented', 'sus4', 'sus2'];
-      const selectedChord = chords[chordTypes[chordType]];
+    function getChordNotes(baseNoteIndex, dragIntensity) {
+      // 드래그 강도에 따라 코드 타입 선택
+      const chordTypes = ['major', 'minor', 'diminished', 'augmented', 'sus4', 'sus2', 'maj7', 'min7', 'dom7', 'dim7', 'aug7'];
+      const chordTypeIndex = Math.floor(dragIntensity * (chordTypes.length - 1));
+      const selectedChord = chords[chordTypes[chordTypeIndex]];
       
-      return selectedChord.map(interval => {
+      // 기본 코드 음
+      const chordNotes = selectedChord.map(interval => {
         const noteIndex = (baseNoteIndex + interval) % notes.length;
         return notes[noteIndex];
       });
+
+      // 드래그 강도에 따라 추가 음 추가
+      if (dragIntensity > 0.5) {
+        const extraNoteIndex = (baseNoteIndex + 14) % notes.length; // 9th 추가
+        chordNotes.push(notes[extraNoteIndex]);
+      }
+      if (dragIntensity > 0.8) {
+        const extraNoteIndex = (baseNoteIndex + 18) % notes.length; // 13th 추가
+        chordNotes.push(notes[extraNoteIndex]);
+      }
+
+      return chordNotes;
     }
 
     // Mouse and touch interaction
@@ -460,7 +487,7 @@ const CubeSynth = () => {
         sphereRef.current = sphere;
         
         const baseNoteIndex = notes.indexOf(currentNoteRef.current);
-        const chordNotes = getChordNotes(baseNoteIndex);
+        const chordNotes = getChordNotes(baseNoteIndex, 0);
         synth.volume.value = volume / 2;
         synth.triggerAttack(chordNotes);
       }
@@ -497,10 +524,18 @@ const CubeSynth = () => {
         const newIndex = Math.max(0, Math.min(notes.length - 1, noteIndex));
         const newNote = notes[newIndex];
         
+        // 드래그 강도 계산 (0~1 사이 값)
+        const dragIntensity = Math.min(1, Math.abs(totalDeltaY) / 300);
+        
         if (newNote !== currentNoteRef.current) {
           currentNoteRef.current = newNote;
           const baseNoteIndex = notes.indexOf(currentNoteRef.current);
-          const chordNotes = getChordNotes(baseNoteIndex);
+          const chordNotes = getChordNotes(baseNoteIndex, dragIntensity);
+          
+          // 드래그 강도에 따라 볼륨과 포르타멘토 조정
+          synth.volume.value = -20 + dragIntensity * 10;
+          synth.portamento = 0.05 + dragIntensity * 0.1;
+          
           synth.releaseAll();
           synth.triggerAttack(chordNotes);
         }
