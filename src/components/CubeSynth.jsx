@@ -521,6 +521,9 @@ const CubeSynth = () => {
 
     // Device orientation handling
     let isOrientationEnabled = false;
+    let lastOrientationTime = 0;
+    const orientationSoundCooldown = 200; // 200ms cooldown between sounds
+
     const handleOrientation = (event) => {
       if (!isOrientationEnabled) return;
       
@@ -535,14 +538,29 @@ const CubeSynth = () => {
       const forceX = gamma * 0.1; // 좌우 기울기
       const forceZ = beta * 0.1;  // 앞뒤 기울기
       
+      // Calculate total force magnitude
+      const forceMagnitude = Math.sqrt(forceX * forceX + forceZ * forceZ);
+      
       // Apply force to the sphere
       selectedBody.applyForce(
         new CANNON.Vec3(forceX, 0, forceZ),
         selectedBody.position
       );
+
+      // Play sound based on force magnitude
+      const currentTime = Date.now();
+      if (forceMagnitude > 0.1 && (currentTime - lastOrientationTime) > orientationSoundCooldown) {
+        lastOrientationTime = currentTime;
+        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
+        const chordNotes = getChordNotes(baseNoteIndex);
+        playMainSphereSound(chordNotes);
+      }
     };
 
     // Touch event handling
+    let lastTouchTime = 0;
+    const touchSoundCooldown = 200; // 200ms cooldown between sounds
+
     const handleTouchStart = (event) => {
       event.preventDefault();
       const touch = event.touches[0];
@@ -582,6 +600,11 @@ const CubeSynth = () => {
       
       const selectedBody = physicsBodiesRef.current[0];
       
+      // Calculate movement distance
+      const dx = intersectionPoint.x - selectedBody.position.x;
+      const dz = intersectionPoint.z - selectedBody.position.z;
+      const movementDistance = Math.sqrt(dx * dx + dz * dz);
+      
       selectedBody.position.x = intersectionPoint.x;
       selectedBody.position.z = intersectionPoint.z;
       
@@ -590,6 +613,15 @@ const CubeSynth = () => {
 
       sphere.position.copy(selectedBody.position);
       sphere.quaternion.copy(selectedBody.quaternion);
+
+      // Play sound based on movement
+      const currentTime = Date.now();
+      if (movementDistance > 0.1 && (currentTime - lastTouchTime) > touchSoundCooldown) {
+        lastTouchTime = currentTime;
+        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
+        const chordNotes = getChordNotes(baseNoteIndex);
+        playMainSphereSound(chordNotes);
+      }
 
       const totalDeltaY = touch.clientY - startYRef.current;
       const noteIndex = Math.floor(Math.abs(totalDeltaY) / 50);
