@@ -3,6 +3,16 @@ import * as THREE from 'three';
 import * as Tone from 'tone';
 import * as CANNON from 'cannon-es';
 
+// 컴포넌트 바깥에 선언 (전역)
+let audioContext;
+function getAudioContext() {
+  if (!audioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioContext = new AudioContext();
+  }
+  return audioContext;
+}
+
 const CubeSynth = () => {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
@@ -40,30 +50,11 @@ const CubeSynth = () => {
 
   const startAudio = async () => {
     try {
-      // Safari를 위한 오디오 컨텍스트 초기화
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      const audioContext = new AudioContext();
-      
-      // Safari에서는 오디오 컨텍스트가 suspended 상태일 수 있음
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
       }
-      
-      // 오디오 컨텍스트가 running 상태인지 확인
-      if (audioContext.state === 'running') {
-        // 간단한 테스트 사운드 재생
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        gainNode.gain.value = 0.1; // 볼륨 낮게 설정
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.1);
-        
-        setIsStarted(true);
-      } else {
-        console.error('Audio context not running:', audioContext.state);
-      }
+      setIsStarted(true);
     } catch (error) {
       console.error('Audio initialization failed:', error);
     }
@@ -343,51 +334,41 @@ const CubeSynth = () => {
     scene.add(toonLight);
 
     // Audio setup with Web Audio API
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const masterGain = audioContext.createGain();
+    const ctx = getAudioContext();
+    const masterGain = ctx.createGain();
     masterGain.gain.value = 0.5;
-    masterGain.connect(audioContext.destination);
+    masterGain.connect(ctx.destination);
 
     // Create main sphere sound function
     const playMainSphereSound = (notes) => {
-      if (audioContext.state !== 'running') return;
-      
-      notes.forEach((note, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
+      if (ctx.state !== 'running') return;
+      notes.forEach((note) => {
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
         oscillator.type = 'sine';
         oscillator.frequency.value = getNoteFrequency(note);
-        
         gainNode.gain.value = 0.1;
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5);
-        
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
         oscillator.connect(gainNode);
         gainNode.connect(masterGain);
-        
         oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.5);
+        oscillator.stop(ctx.currentTime + 0.5);
       });
     };
 
     // Create collision sound function
     const playCollisionSound = (velocity) => {
-      if (audioContext.state !== 'running') return;
-      
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
+      if (ctx.state !== 'running') return;
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
       oscillator.type = 'sine';
-      oscillator.frequency.value = 440 + (velocity * 100); // 속도에 따라 피치 변경
-      
-      gainNode.gain.value = Math.min(0.3, velocity * 0.1); // 속도에 따라 볼륨 변경
-      gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
-      
+      oscillator.frequency.value = 440 + (velocity * 100);
+      gainNode.gain.value = Math.min(0.3, velocity * 0.1);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
       oscillator.connect(gainNode);
       gainNode.connect(masterGain);
-      
       oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.2);
+      oscillator.stop(ctx.currentTime + 0.2);
     };
 
     // Helper function to convert note to frequency
@@ -597,19 +578,8 @@ const CubeSynth = () => {
             onMouseOver={(e) => e.target.style.backgroundColor = '#45a049'}
             onMouseOut={(e) => e.target.style.backgroundColor = '#4CAF50'}
           >
-            {isMobile ? '터치하여 소리 켜기' : 'Start Experience'}
+            Start Experience
           </button>
-          {isMobile && (
-            <p style={{ 
-              marginTop: '20px', 
-              color: '#666',
-              fontSize: '16px',
-              maxWidth: '300px',
-              margin: '20px auto 0'
-            }}>
-              모바일에서는 소리를 켜야 합니다. 버튼을 터치해주세요.
-            </p>
-          )}
         </div>
       ) : (
         <>
