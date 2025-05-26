@@ -3,16 +3,6 @@ import * as THREE from 'three';
 import * as Tone from 'tone';
 import * as CANNON from 'cannon-es';
 
-// 컴포넌트 바깥에 선언 (전역)
-let audioContext;
-function getAudioContext() {
-  if (!audioContext) {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    audioContext = new AudioContext();
-  }
-  return audioContext;
-}
-
 const CubeSynth = () => {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
@@ -50,11 +40,26 @@ const CubeSynth = () => {
 
   const startAudio = async () => {
     try {
-      const ctx = getAudioContext();
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
+      // Safari를 위한 오디오 컨텍스트 초기화
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContext();
+      
+      // Safari에서는 오디오 컨텍스트가 suspended 상태일 수 있음
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
       }
-      setIsStarted(true);
+      
+      // Tone.js 초기화 전에 오디오 컨텍스트가 running 상태인지 확인
+      if (audioContext.state === 'running') {
+        await Tone.start();
+        // 초기화 후 바로 소리 테스트
+        const testSynth = new Tone.Synth().toDestination();
+        testSynth.triggerAttackRelease("C4", "8n");
+        testSynth.dispose();
+        setIsStarted(true);
+      } else {
+        console.error('Audio context not running:', audioContext.state);
+      }
     } catch (error) {
       console.error('Audio initialization failed:', error);
     }
@@ -65,13 +70,13 @@ const CubeSynth = () => {
 
     // 터치 이벤트 핸들러 추가
     const handleTouchStart = async (event) => {
-      event.preventDefault(); // 기본 터치 동작 방지
+      event.preventDefault();
       if (!isStarted) {
         await startAudio();
       }
     };
 
-    // 터치 이벤트 리스너 등록 (passive: false로 설정)
+    // 터치 이벤트 리스너 등록
     document.addEventListener('touchstart', handleTouchStart, { 
       once: true,
       passive: false 
@@ -333,56 +338,36 @@ const CubeSynth = () => {
     toonLight.castShadow = true;
     scene.add(toonLight);
 
-    // Audio setup with Web Audio API
-    const ctx = getAudioContext();
-    const masterGain = ctx.createGain();
-    masterGain.gain.value = 0.5;
-    masterGain.connect(ctx.destination);
+    // Audio setup
+    const synth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: {
+        type: "sine",
+        partials: [0, 2, 3, 4],
+        phase: 0,
+        harmonicity: 0.5
+      },
+      envelope: {
+        attack: 0.005,
+        decay: 0.1,
+        sustain: 0.3,
+        release: 1
+      },
+      portamento: 0.05
+    }).toDestination();
+    synthRef.current = synth;
 
-    // Create main sphere sound function
-    const playMainSphereSound = (notes) => {
-      if (ctx.state !== 'running') return;
-      notes.forEach((note) => {
-        const oscillator = ctx.createOscillator();
-        const gainNode = ctx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.value = getNoteFrequency(note);
-        gainNode.gain.value = 0.1;
-        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-        oscillator.connect(gainNode);
-        gainNode.connect(masterGain);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.5);
-      });
-    };
-
-    // Create collision sound function
-    const playCollisionSound = (velocity) => {
-      if (ctx.state !== 'running') return;
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 440 + (velocity * 100);
-      gainNode.gain.value = Math.min(0.3, velocity * 0.1);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-      oscillator.connect(gainNode);
-      gainNode.connect(masterGain);
-      oscillator.start();
-      oscillator.stop(ctx.currentTime + 0.2);
-    };
-
-    // Helper function to convert note to frequency
-    const getNoteFrequency = (note) => {
-      const noteMap = {
-        'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13,
-        'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00,
-        'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88,
-        'C5': 523.25, 'C#5': 554.37, 'D5': 587.33, 'D#5': 622.25,
-        'E5': 659.25, 'F5': 698.46, 'F#5': 739.99, 'G5': 783.99,
-        'G#5': 830.61, 'A5': 880.00, 'A#5': 932.33, 'B5': 987.77
-      };
-      return noteMap[note] || 440;
-    };
+    // Create collision sound synth
+    const collisionSynth = new Tone.Synth({
+      oscillator: {
+        type: "sine"
+      },
+      envelope: {
+        attack: 0.001,
+        decay: 0.2,
+        sustain: 0,
+        release: 0.1
+      }
+    }).toDestination();
 
     // Add collision event listeners
     let lastCollisionTime = 0;
@@ -400,7 +385,16 @@ const CubeSynth = () => {
       const currentTime = Date.now();
       if (impactVelocity > 1 && (currentTime - lastCollisionTime) > collisionCooldown) {
         lastCollisionTime = currentTime;
-        playCollisionSound(impactVelocity);
+        
+        const note = Math.min(notes.length - 1, Math.floor(impactVelocity * 2));
+        const volume = Math.min(0, -20 + impactVelocity * 5);
+        
+        try {
+          collisionSynth.volume.value = volume;
+          collisionSynth.triggerAttackRelease(notes[note], "32n");
+        } catch (error) {
+          console.log("Sound trigger error:", error);
+        }
       }
     });
 
@@ -431,34 +425,45 @@ const CubeSynth = () => {
       });
     }
 
-    // Mouse interaction
+    // Mouse and touch interaction
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    let touchStartX = 0;
+    let touchStartY = 0;
 
-    function onMouseDown(event) {
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    function onPointerDown(event) {
+      const clientX = event.clientX || event.touches[0].clientX;
+      const clientY = event.clientY || event.touches[0].clientY;
+      
+      mouse.x = (clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(clientY / window.innerHeight) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObject(sphere);
 
       if (intersects.length > 0) {
         isDraggingRef.current = true;
-        startXRef.current = event.clientX;
-        startYRef.current = event.clientY;
+        startXRef.current = clientX;
+        startYRef.current = clientY;
+        touchStartX = clientX;
+        touchStartY = clientY;
         
         sphereRef.current = sphere;
         
         const baseNoteIndex = notes.indexOf(currentNoteRef.current);
         const chordNotes = getChordNotes(baseNoteIndex);
-        playMainSphereSound(chordNotes);
+        synth.volume.value = volume / 2;
+        synth.triggerAttack(chordNotes);
       }
     }
 
-    function onMouseMove(event) {
+    function onPointerMove(event) {
       if (isDraggingRef.current) {
-        const mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-        const mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+        const clientX = event.clientX || event.touches[0].clientX;
+        const clientY = event.clientY || event.touches[0].clientY;
+        
+        const mouseX = (clientX / window.innerWidth) * 2 - 1;
+        const mouseY = -(clientY / window.innerHeight) * 2 + 1;
         
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const raycaster = new THREE.Raycaster();
@@ -478,7 +483,7 @@ const CubeSynth = () => {
         sphere.position.copy(selectedBody.position);
         sphere.quaternion.copy(selectedBody.quaternion);
 
-        const totalDeltaY = event.clientY - startYRef.current;
+        const totalDeltaY = clientY - startYRef.current;
         const noteIndex = Math.floor(Math.abs(totalDeltaY) / 50);
         const newIndex = Math.max(0, Math.min(notes.length - 1, noteIndex));
         const newNote = notes[newIndex];
@@ -487,16 +492,18 @@ const CubeSynth = () => {
           currentNoteRef.current = newNote;
           const baseNoteIndex = notes.indexOf(currentNoteRef.current);
           const chordNotes = getChordNotes(baseNoteIndex);
-          playMainSphereSound(chordNotes);
+          synth.releaseAll();
+          synth.triggerAttack(chordNotes);
         }
       }
     }
 
-    function onMouseUp() {
+    function onPointerUp() {
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
+        synth.releaseAll();
+        synth.volume.value = volume;
         
-        // 마우스를 놓으면 중력의 영향을 받도록 설정
         const selectedBody = physicsBodiesRef.current[0];
         selectedBody.velocity.set(0, 0, 0);
       }
@@ -507,9 +514,13 @@ const CubeSynth = () => {
       event.preventDefault();
     }
 
-    window.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    // 이벤트 리스너 등록
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('touchstart', onPointerDown, { passive: false });
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('touchmove', onPointerMove, { passive: false });
+    window.addEventListener('mouseup', onPointerUp);
+    window.addEventListener('touchend', onPointerUp);
     window.addEventListener('contextmenu', onContextMenu);
 
     const handleResize = () => {
@@ -518,157 +529,6 @@ const CubeSynth = () => {
       renderer.setSize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener('resize', handleResize);
-
-    // Device orientation handling
-    let isOrientationEnabled = false;
-    let lastOrientationTime = 0;
-    const orientationSoundCooldown = 200; // 200ms cooldown between sounds
-
-    const handleOrientation = (event) => {
-      if (!isOrientationEnabled) return;
-      
-      const selectedBody = physicsBodiesRef.current[0];
-      if (!selectedBody) return;
-
-      // Get device orientation
-      const beta = event.beta;  // -180 to 180 (front/back)
-      const gamma = event.gamma; // -90 to 90 (left/right)
-      
-      // Convert orientation to force
-      const forceX = gamma * 0.1; // 좌우 기울기
-      const forceZ = beta * 0.1;  // 앞뒤 기울기
-      
-      // Calculate total force magnitude
-      const forceMagnitude = Math.sqrt(forceX * forceX + forceZ * forceZ);
-      
-      // Apply force to the sphere
-      selectedBody.applyForce(
-        new CANNON.Vec3(forceX, 0, forceZ),
-        selectedBody.position
-      );
-
-      // Play sound based on force magnitude
-      const currentTime = Date.now();
-      if (forceMagnitude > 0.1 && (currentTime - lastOrientationTime) > orientationSoundCooldown) {
-        lastOrientationTime = currentTime;
-        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
-        const chordNotes = getChordNotes(baseNoteIndex);
-        playMainSphereSound(chordNotes);
-      }
-    };
-
-    // Touch event handling
-    let lastTouchTime = 0;
-    const touchSoundCooldown = 200; // 200ms cooldown between sounds
-
-    const handleTouchStart = (event) => {
-      event.preventDefault();
-      const touch = event.touches[0];
-      const mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
-      const mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
-
-      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
-      const intersects = raycaster.intersectObject(sphere);
-
-      if (intersects.length > 0) {
-        isDraggingRef.current = true;
-        startXRef.current = touch.clientX;
-        startYRef.current = touch.clientY;
-        
-        sphereRef.current = sphere;
-        
-        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
-        const chordNotes = getChordNotes(baseNoteIndex);
-        playMainSphereSound(chordNotes);
-      }
-    };
-
-    const handleTouchMove = (event) => {
-      if (!isDraggingRef.current) return;
-      event.preventDefault();
-      
-      const touch = event.touches[0];
-      const mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
-      const mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
-      
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
-      
-      const intersectionPoint = new THREE.Vector3();
-      raycaster.ray.intersectPlane(plane, intersectionPoint);
-      
-      const selectedBody = physicsBodiesRef.current[0];
-      
-      // Calculate movement distance
-      const dx = intersectionPoint.x - selectedBody.position.x;
-      const dz = intersectionPoint.z - selectedBody.position.z;
-      const movementDistance = Math.sqrt(dx * dx + dz * dz);
-      
-      selectedBody.position.x = intersectionPoint.x;
-      selectedBody.position.z = intersectionPoint.z;
-      
-      selectedBody.velocity.set(0, 0, 0);
-      selectedBody.angularVelocity.set(0, 0, 0);
-
-      sphere.position.copy(selectedBody.position);
-      sphere.quaternion.copy(selectedBody.quaternion);
-
-      // Play sound based on movement
-      const currentTime = Date.now();
-      if (movementDistance > 0.1 && (currentTime - lastTouchTime) > touchSoundCooldown) {
-        lastTouchTime = currentTime;
-        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
-        const chordNotes = getChordNotes(baseNoteIndex);
-        playMainSphereSound(chordNotes);
-      }
-
-      const totalDeltaY = touch.clientY - startYRef.current;
-      const noteIndex = Math.floor(Math.abs(totalDeltaY) / 50);
-      const newIndex = Math.max(0, Math.min(notes.length - 1, noteIndex));
-      const newNote = notes[newIndex];
-      
-      if (newNote !== currentNoteRef.current) {
-        currentNoteRef.current = newNote;
-        const baseNoteIndex = notes.indexOf(currentNoteRef.current);
-        const chordNotes = getChordNotes(baseNoteIndex);
-        playMainSphereSound(chordNotes);
-      }
-    };
-
-    const handleTouchEnd = () => {
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false;
-        
-        const selectedBody = physicsBodiesRef.current[0];
-        selectedBody.velocity.set(0, 0, 0);
-      }
-    };
-
-    // Add event listeners for mobile
-    if (isMobile) {
-      // Request device orientation permission
-      if (typeof DeviceOrientationEvent !== 'undefined' && 
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission()
-          .then(permissionState => {
-            if (permissionState === 'granted') {
-              isOrientationEnabled = true;
-              window.addEventListener('deviceorientation', handleOrientation);
-            }
-          })
-          .catch(console.error);
-      } else {
-        // For devices that don't require permission
-        isOrientationEnabled = true;
-        window.addEventListener('deviceorientation', handleOrientation);
-      }
-
-      // Add touch event listeners
-      window.addEventListener('touchstart', handleTouchStart, { passive: false });
-      window.addEventListener('touchmove', handleTouchMove, { passive: false });
-      window.addEventListener('touchend', handleTouchEnd);
-    }
 
     function animate() {
       requestAnimationFrame(animate);
@@ -692,22 +552,18 @@ const CubeSynth = () => {
     animate();
 
     return () => {
-      // Remove event listeners
-      if (isMobile) {
-        window.removeEventListener('deviceorientation', handleOrientation);
-        window.removeEventListener('touchstart', handleTouchStart);
-        window.removeEventListener('touchmove', handleTouchMove);
-        window.removeEventListener('touchend', handleTouchEnd);
-      }
-      window.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('touchstart', onPointerDown);
+      window.removeEventListener('mousemove', onPointerMove);
+      window.removeEventListener('touchmove', onPointerMove);
+      window.removeEventListener('mouseup', onPointerUp);
+      window.removeEventListener('touchend', onPointerUp);
       window.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', handleResize);
       mountRef.current?.removeChild(renderer.domElement);
-      synthRef.current.dispose();
+      synth.dispose();
     };
-  }, [isStarted, isMobile]);
+  }, [isStarted]);
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
@@ -736,8 +592,19 @@ const CubeSynth = () => {
             onMouseOver={(e) => e.target.style.backgroundColor = '#45a049'}
             onMouseOut={(e) => e.target.style.backgroundColor = '#4CAF50'}
           >
-            Start Experience
+            {isMobile ? '터치하여 소리 켜기' : 'Start Experience'}
           </button>
+          {isMobile && (
+            <p style={{ 
+              marginTop: '20px', 
+              color: '#666',
+              fontSize: '16px',
+              maxWidth: '300px',
+              margin: '20px auto 0'
+            }}>
+              모바일에서는 소리를 켜야 합니다. 버튼을 터치해주세요.
+            </p>
+          )}
         </div>
       ) : (
         <>
