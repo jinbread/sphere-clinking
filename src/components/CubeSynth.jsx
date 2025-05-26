@@ -99,10 +99,17 @@ const CubeSynth = () => {
     camera.lookAt(0, 0, 0);
     camera.rotation.z = 0;
 
-    const renderer = new THREE.WebGLRenderer();
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance"
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     mountRef.current.appendChild(renderer.domElement);
 
     // Physics world setup
@@ -308,28 +315,30 @@ const CubeSynth = () => {
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(5, 10, 5);
     directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.mapSize.width = 4096;
+    directionalLight.shadow.mapSize.height = 4096;
     directionalLight.shadow.camera.near = 0.5;
     directionalLight.shadow.camera.far = 50;
     directionalLight.shadow.camera.left = -10;
     directionalLight.shadow.camera.right = 10;
     directionalLight.shadow.camera.top = 10;
     directionalLight.shadow.camera.bottom = -10;
+    directionalLight.shadow.bias = -0.0001;
     scene.add(directionalLight);
 
     // 천장 조명 추가
     const ceilingLight = new THREE.DirectionalLight(0xffffff, 0.6);
     ceilingLight.position.set(0, wallHeight - 1, 0);
     ceilingLight.castShadow = true;
-    ceilingLight.shadow.mapSize.width = 2048;
-    ceilingLight.shadow.mapSize.height = 2048;
+    ceilingLight.shadow.mapSize.width = 4096;
+    ceilingLight.shadow.mapSize.height = 4096;
     ceilingLight.shadow.camera.near = 0.5;
     ceilingLight.shadow.camera.far = 50;
     ceilingLight.shadow.camera.left = -10;
     ceilingLight.shadow.camera.right = 10;
     ceilingLight.shadow.camera.top = 10;
     ceilingLight.shadow.camera.bottom = -10;
+    ceilingLight.shadow.bias = -0.0001;
     scene.add(ceilingLight);
 
     // Add toon light helper
@@ -527,6 +536,7 @@ const CubeSynth = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     };
     window.addEventListener('resize', handleResize);
 
@@ -579,12 +589,12 @@ const CubeSynth = () => {
           <button
             onClick={startAudio}
             style={{
-              padding: '20px 40px',
-              fontSize: '24px',
+              padding: '12px 16px',
+              fontSize: '16px',
               backgroundColor: '#4CAF50',
               color: 'white',
               border: 'none',
-              borderRadius: '10px',
+              borderRadius: '8px',
               cursor: 'pointer',
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
               transition: 'all 0.3s ease'
@@ -592,19 +602,8 @@ const CubeSynth = () => {
             onMouseOver={(e) => e.target.style.backgroundColor = '#45a049'}
             onMouseOut={(e) => e.target.style.backgroundColor = '#4CAF50'}
           >
-            {isMobile ? '터치하여 소리 켜기' : 'Start Experience'}
+            Start Experience
           </button>
-          {isMobile && (
-            <p style={{ 
-              marginTop: '20px', 
-              color: '#666',
-              fontSize: '16px',
-              maxWidth: '300px',
-              margin: '20px auto 0'
-            }}>
-              모바일에서는 소리를 켜야 합니다. 버튼을 터치해주세요.
-            </p>
-          )}
         </div>
       ) : (
         <>
