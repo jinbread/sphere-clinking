@@ -22,9 +22,36 @@ const CubeSynth = () => {
   const [isStarted, setIsStarted] = useState(false);
 
   const startAudio = async () => {
-    await Tone.start();
-    setIsStarted(true);
+    try {
+      // 모바일 브라우저를 위한 오디오 컨텍스트 초기화
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await audioContext.resume();
+      
+      // Tone.js 초기화
+      await Tone.start();
+      setIsStarted(true);
+    } catch (error) {
+      console.error('Audio initialization failed:', error);
+    }
   };
+
+  useEffect(() => {
+    if (!isStarted) return;
+
+    // 터치 이벤트 핸들러 추가
+    const handleTouchStart = async (event) => {
+      if (!isStarted) {
+        await startAudio();
+      }
+    };
+
+    // 터치 이벤트 리스너 등록
+    document.addEventListener('touchstart', handleTouchStart, { once: true });
+
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart);
+    };
+  }, [isStarted]);
 
   useEffect(() => {
     if (!isStarted) return;
@@ -191,7 +218,7 @@ const CubeSynth = () => {
     // Create surrounding spheres
     const surroundingSpheres = [];
     const surroundingBodies = [];
-    const numSpheres = 100;
+    const numSpheres = 150;
     const maxRadius = 12;
     const minRadius = 2;
     const maxHeight = wallHeight - 4;
@@ -518,81 +545,10 @@ const CubeSynth = () => {
           >
             Start Experience
           </button>
-          <p style={{ marginTop: '20px', color: '#666' }}>
-            Click to initialize audio and start the experience
-          </p>
         </div>
       ) : (
         <>
           <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
-          <div style={{
-            position: 'absolute',
-            top: '20px',
-            right: '20px',
-            background: 'rgba(0, 0, 0, 0.7)',
-            padding: '15px',
-            borderRadius: '10px',
-            color: 'white',
-            fontFamily: 'Arial, sans-serif'
-          }}>
-            <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', marginBottom: '5px' }}>Volume</label>
-              <input
-                type="range"
-                min="-40"
-                max="0"
-                value={volume}
-                onChange={(e) => {
-                  const newVolume = parseInt(e.target.value);
-                  setVolume(newVolume);
-                  if (synthRef.current) {
-                    synthRef.current.volume.value = newVolume;
-                  }
-                }}
-                style={{ width: '150px' }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '5px' }}>Octave</label>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={() => {
-                    const newOctave = Math.max(3, octave - 1);
-                    setOctave(newOctave);
-                    currentNoteRef.current = currentNoteRef.current.replace(/\d/, newOctave);
-                  }}
-                  style={{
-                    padding: '5px 10px',
-                    background: '#444',
-                    border: 'none',
-                    borderRadius: '5px',
-                    color: 'white',
-                    cursor: 'pointer'
-                  }}
-                >
-                  -
-                </button>
-                <span style={{ lineHeight: '30px' }}>{octave}</span>
-                <button
-                  onClick={() => {
-                    const newOctave = Math.min(6, octave + 1);
-                    setOctave(newOctave);
-                    currentNoteRef.current = currentNoteRef.current.replace(/\d/, newOctave);
-                  }}
-                  style={{
-                    padding: '5px 10px',
-                    background: '#444',
-                    border: 'none',
-                    borderRadius: '5px',
-                    color: 'white',
-                    cursor: 'pointer'
-                  }}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          </div>
         </>
       )}
     </div>
