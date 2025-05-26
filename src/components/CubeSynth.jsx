@@ -20,6 +20,23 @@ const CubeSynth = () => {
   const [volume, setVolume] = useState(-20);
   const [octave, setOctave] = useState(4);
   const [isStarted, setIsStarted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    // 모바일 기기 감지
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i;
+      setIsMobile(mobileRegex.test(userAgent.toLowerCase()));
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
+  }, []);
 
   const startAudio = async () => {
     try {
@@ -543,8 +560,19 @@ const CubeSynth = () => {
             onMouseOver={(e) => e.target.style.backgroundColor = '#45a049'}
             onMouseOut={(e) => e.target.style.backgroundColor = '#4CAF50'}
           >
-            Start Experience
+            {isMobile ? '터치하여 소리 켜기' : 'Start Experience'}
           </button>
+          {isMobile && (
+            <p style={{ 
+              marginTop: '20px', 
+              color: '#666',
+              fontSize: '16px',
+              maxWidth: '300px',
+              margin: '20px auto 0'
+            }}>
+              모바일에서는 소리를 켜야 합니다. 버튼을 터치해주세요.
+            </p>
+          )}
         </div>
       ) : (
         <>
