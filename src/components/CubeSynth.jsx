@@ -40,13 +40,22 @@ const CubeSynth = () => {
 
   const startAudio = async () => {
     try {
-      // 모바일 브라우저를 위한 오디오 컨텍스트 초기화
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      await audioContext.resume();
+      // Safari를 위한 오디오 컨텍스트 초기화
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContext();
       
-      // Tone.js 초기화
-      await Tone.start();
-      setIsStarted(true);
+      // Safari에서는 오디오 컨텍스트가 suspended 상태일 수 있음
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+      
+      // Tone.js 초기화 전에 오디오 컨텍스트가 running 상태인지 확인
+      if (audioContext.state === 'running') {
+        await Tone.start();
+        setIsStarted(true);
+      } else {
+        console.error('Audio context not running:', audioContext.state);
+      }
     } catch (error) {
       console.error('Audio initialization failed:', error);
     }
@@ -57,13 +66,17 @@ const CubeSynth = () => {
 
     // 터치 이벤트 핸들러 추가
     const handleTouchStart = async (event) => {
+      event.preventDefault(); // 기본 터치 동작 방지
       if (!isStarted) {
         await startAudio();
       }
     };
 
-    // 터치 이벤트 리스너 등록
-    document.addEventListener('touchstart', handleTouchStart, { once: true });
+    // 터치 이벤트 리스너 등록 (passive: false로 설정)
+    document.addEventListener('touchstart', handleTouchStart, { 
+      once: true,
+      passive: false 
+    });
 
     return () => {
       document.removeEventListener('touchstart', handleTouchStart);
