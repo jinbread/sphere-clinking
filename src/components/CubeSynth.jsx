@@ -49,9 +49,17 @@ const CubeSynth = () => {
         await audioContext.resume();
       }
       
-      // Tone.js 초기화 전에 오디오 컨텍스트가 running 상태인지 확인
+      // 오디오 컨텍스트가 running 상태인지 확인
       if (audioContext.state === 'running') {
-        await Tone.start();
+        // 간단한 테스트 사운드 재생
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        gainNode.gain.value = 0.1; // 볼륨 낮게 설정
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+        
         setIsStarted(true);
       } else {
         console.error('Audio context not running:', audioContext.state);
@@ -334,36 +342,66 @@ const CubeSynth = () => {
     toonLight.castShadow = true;
     scene.add(toonLight);
 
-    // Audio setup
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: {
-        type: "sine",
-        partials: [0, 2, 3, 4],
-        phase: 0,
-        harmonicity: 0.5
-      },
-      envelope: {
-        attack: 0.005,
-        decay: 0.1,
-        sustain: 0.3,
-        release: 1
-      },
-      portamento: 0.05
-    }).toDestination();
-    synthRef.current = synth;
+    // Audio setup with Web Audio API
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const masterGain = audioContext.createGain();
+    masterGain.gain.value = 0.5;
+    masterGain.connect(audioContext.destination);
 
-    // Create collision sound synth
-    const collisionSynth = new Tone.Synth({
-      oscillator: {
-        type: "sine"
-      },
-      envelope: {
-        attack: 0.001,
-        decay: 0.2,
-        sustain: 0,
-        release: 0.1
-      }
-    }).toDestination();
+    // Create main sphere sound function
+    const playMainSphereSound = (notes) => {
+      if (audioContext.state !== 'running') return;
+      
+      notes.forEach((note, index) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.value = getNoteFrequency(note);
+        
+        gainNode.gain.value = 0.1;
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(masterGain);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.5);
+      });
+    };
+
+    // Create collision sound function
+    const playCollisionSound = (velocity) => {
+      if (audioContext.state !== 'running') return;
+      
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 440 + (velocity * 100); // 속도에 따라 피치 변경
+      
+      gainNode.gain.value = Math.min(0.3, velocity * 0.1); // 속도에 따라 볼륨 변경
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(masterGain);
+      
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.2);
+    };
+
+    // Helper function to convert note to frequency
+    const getNoteFrequency = (note) => {
+      const noteMap = {
+        'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13,
+        'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00,
+        'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88,
+        'C5': 523.25, 'C#5': 554.37, 'D5': 587.33, 'D#5': 622.25,
+        'E5': 659.25, 'F5': 698.46, 'F#5': 739.99, 'G5': 783.99,
+        'G#5': 830.61, 'A5': 880.00, 'A#5': 932.33, 'B5': 987.77
+      };
+      return noteMap[note] || 440;
+    };
 
     // Add collision event listeners
     let lastCollisionTime = 0;
@@ -381,16 +419,7 @@ const CubeSynth = () => {
       const currentTime = Date.now();
       if (impactVelocity > 1 && (currentTime - lastCollisionTime) > collisionCooldown) {
         lastCollisionTime = currentTime;
-        
-        const note = Math.min(notes.length - 1, Math.floor(impactVelocity * 2));
-        const volume = Math.min(0, -20 + impactVelocity * 5);
-        
-        try {
-          collisionSynth.volume.value = volume;
-          collisionSynth.triggerAttackRelease(notes[note], "32n");
-        } catch (error) {
-          console.log("Sound trigger error:", error);
-        }
+        playCollisionSound(impactVelocity);
       }
     });
 
@@ -441,8 +470,7 @@ const CubeSynth = () => {
         
         const baseNoteIndex = notes.indexOf(currentNoteRef.current);
         const chordNotes = getChordNotes(baseNoteIndex);
-        synth.volume.value = volume / 2;
-        synth.triggerAttack(chordNotes);
+        playMainSphereSound(chordNotes);
       }
     }
 
@@ -460,7 +488,6 @@ const CubeSynth = () => {
         
         const selectedBody = physicsBodiesRef.current[0];
         
-        // X와 Z 위치만 업데이트하고 Y는 현재 위치 유지
         selectedBody.position.x = intersectionPoint.x;
         selectedBody.position.z = intersectionPoint.z;
         
@@ -479,8 +506,7 @@ const CubeSynth = () => {
           currentNoteRef.current = newNote;
           const baseNoteIndex = notes.indexOf(currentNoteRef.current);
           const chordNotes = getChordNotes(baseNoteIndex);
-          synth.releaseAll();
-          synth.triggerAttack(chordNotes);
+          playMainSphereSound(chordNotes);
         }
       }
     }
@@ -488,8 +514,6 @@ const CubeSynth = () => {
     function onMouseUp() {
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
-        synth.releaseAll();
-        synth.volume.value = volume;
         
         // 마우스를 놓으면 중력의 영향을 받도록 설정
         const selectedBody = physicsBodiesRef.current[0];
@@ -542,7 +566,7 @@ const CubeSynth = () => {
       window.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', handleResize);
       mountRef.current?.removeChild(renderer.domElement);
-      synth.dispose();
+      synthRef.current.dispose();
     };
   }, [isStarted]);
 
